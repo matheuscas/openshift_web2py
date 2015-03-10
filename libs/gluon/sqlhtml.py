@@ -14,28 +14,32 @@ Holds:
 
 """
 
-import os
-from gluon.http import HTTP
-from gluon.html import XmlComponent
-from gluon.html import XML, SPAN, TAG, A, DIV, CAT, UL, LI, TEXTAREA, BR, IMG, SCRIPT, P
-from gluon.html import FORM, INPUT, LABEL, OPTION, SELECT, COL, COLGROUP
-from gluon.html import TABLE, THEAD, TBODY, TR, TD, TH, STYLE, DEFAULT_PASSWORD_DISPLAY
-from gluon.html import URL, truncate_string, FIELDSET
-from gluon.dal import DAL, Field, Table, Row, CALLABLETYPES, smart_query, \
-    bar_encode, Reference, Expression, SQLCustomType, sqlhtml_validators, \
-    DEFAULT
-from gluon.storage import Storage
-from gluon.utils import md5_hash
-from gluon.validators import IS_EMPTY_OR, IS_NOT_EMPTY, IS_LIST_OF, IS_DATE, \
-    IS_DATETIME, IS_INT_IN_RANGE, IS_FLOAT_IN_RANGE, IS_STRONG
-
-import gluon.serializers as serializers
 import datetime
 import urllib
 import re
 import cStringIO
+
+import os
+from gluon.http import HTTP, redirect
+from gluon.html import XmlComponent, truncate_string
+from gluon.html import XML, SPAN, TAG, A, DIV, CAT, UL, LI, TEXTAREA, BR, IMG
+from gluon.html import FORM, INPUT, LABEL, OPTION, SELECT, COL, COLGROUP
+from gluon.html import TABLE, THEAD, TBODY, TR, TD, TH, STYLE, SCRIPT
+from gluon.html import URL, FIELDSET, P, DEFAULT_PASSWORD_DISPLAY
+from pydal.base import DEFAULT
+from pydal.objects import Table, Row, Expression, Field
+from pydal.adapters.base import CALLABLETYPES
+from pydal.helpers.methods import smart_query, bar_encode
+from pydal.helpers.classes import Reference, SQLCustomType
+from gluon.dal import _default_validators
+from gluon.storage import Storage
+from gluon.utils import md5_hash
+from gluon.validators import IS_EMPTY_OR, IS_NOT_EMPTY, IS_LIST_OF, IS_DATE
+from gluon.validators import IS_DATETIME, IS_INT_IN_RANGE, IS_FLOAT_IN_RANGE
+from gluon.validators import IS_STRONG
+
+import gluon.serializers as serializers
 from gluon.globals import current
-from gluon.http import redirect
 
 try:
     import gluon.settings as settings
@@ -44,9 +48,11 @@ except ImportError:
 
 widget_class = re.compile('^\w*')
 
+REGEX_ALIAS_MATCH = re.compile('^(.*) AS (.*)$')
+
 
 def add_class(a, b):
-    return a+' '+b if a else b
+    return a + ' ' + b if a else b
 
 
 def represent(field, value, record):
@@ -82,11 +88,11 @@ def show_if(cond):
     if not cond:
         return None
     base = "%s_%s" % (cond.first.tablename, cond.first.name)
-    if ((cond.op.__name__ == 'EQ' and cond.second == True) or
-        (cond.op.__name__ == 'NE' and cond.second == False)):
+    if ((cond.op.__name__ == 'EQ' and cond.second is True) or
+            (cond.op.__name__ == 'NE' and cond.second is False)):
         return base, ":checked"
-    if ((cond.op.__name__ == 'EQ' and cond.second == False) or
-        (cond.op.__name__ == 'NE' and cond.second == True)):
+    if ((cond.op.__name__ == 'EQ' and cond.second is False) or
+            (cond.op.__name__ == 'NE' and cond.second is True)):
         return base, ":not(:checked)"
     if cond.op.__name__ == 'EQ':
         return base, "[value='%s']" % cond.second
@@ -169,7 +175,7 @@ class StringWidget(FormWidget):
 
         default = dict(
             _type='text',
-            value=(not value is None and str(value)) or '',
+            value=(value is not None and str(value)) or '',
         )
         attr = cls._attributes(field, default, **attributes)
 
@@ -302,7 +308,8 @@ class ListWidget(StringWidget):
             _class = 'string'
         requires = field.requires if isinstance(
             field.requires, (IS_NOT_EMPTY, IS_LIST_OF)) else None
-        if isinstance(value, str): value = [value]
+        if isinstance(value, str):
+            value = [value]
         nvalue = value or ['']
         items = [LI(INPUT(_id=_id, _class=_class, _name=_name,
                           value=v, hideerror=k < len(nvalue) - 1,
@@ -348,7 +355,6 @@ class RadioWidget(OptionsWidget):
         else:
             value = str(value)
 
-
         attr = cls._attributes(field, {}, **attributes)
         attr['_class'] = add_class(attr.get('_class'), 'web2py_radiowidget')
 
@@ -370,7 +376,7 @@ class RadioWidget(OptionsWidget):
         if mods:
             rows += 1
 
-        #widget style
+        # widget style
         wrappers = dict(
             table=(TABLE, TR, TD),
             ul=(DIV, UL, LI),
@@ -436,7 +442,7 @@ class CheckboxesWidget(OptionsWidget):
         if mods:
             rows += 1
 
-        #widget style
+        # widget style
         wrappers = dict(
             table=(TABLE, TR, TD),
             ul=(DIV, UL, LI),
@@ -623,7 +629,7 @@ class AutocompleteWidget(object):
         self.help_fields = help_fields or []
         self.help_string = help_string
         if self.help_fields and not self.help_string:
-            self.help_string = ' '.join('%%(%s)s'%f.name
+            self.help_string = ' '.join('%%(%s)s' % f.name
                                         for f in self.help_fields)
 
         self.request = request
@@ -652,7 +658,7 @@ class AutocompleteWidget(object):
             if settings and settings.global_settings.web2py_runtime_gae:
                 rows = self.db(field.__ge__(self.request.vars[self.keyword]) & field.__lt__(self.request.vars[self.keyword] + u'\ufffd')).select(orderby=self.orderby, limitby=self.limitby, *(self.fields+self.help_fields))
             else:
-                rows = self.db(field.like(self.request.vars[self.keyword] + '%')).select(orderby=self.orderby, limitby=self.limitby, distinct=self.distinct, *(self.fields+self.help_fields))
+                rows = self.db(field.like(self.request.vars[self.keyword] + '%', case_sensitive=False)).select(orderby=self.orderby, limitby=self.limitby, distinct=self.distinct, *(self.fields+self.help_fields))
             if rows:
                 if self.is_reference:
                     id_field = self.fields[1]
@@ -681,7 +687,7 @@ class AutocompleteWidget(object):
     def __call__(self, field, value, **attributes):
         default = dict(
             _type='text',
-            value=(not value is None and str(value)) or '',
+            value=(value is not None and str(value)) or '',
         )
         attr = StringWidget._attributes(field, default, **attributes)
         div_id = self.keyword + '_div'
@@ -855,7 +861,7 @@ def formstyle_bootstrap3_stacked(form, fields):
                 controls.add_class('form-control')
 
         elif isinstance(controls, SPAN):
-             _controls = P(controls.components)
+            _controls = P(controls.components)
 
         if isinstance(label, LABEL):
             label['_class'] = 'control-label'
@@ -897,7 +903,7 @@ def formstyle_bootstrap3_inline_factory(col_label_size=3):
                     label['_for'] = None
                     label.insert(0, controls)
                     _controls = DIV(DIV(label, _help, _class="checkbox"),
-                                _class="%s %s" % (offset_class, col_class))
+                        _class="%s %s" % (offset_class, col_class))
                     label = ''
                 elif isinstance(controls, SELECT):
                     controls.add_class('form-control')
@@ -1012,7 +1018,7 @@ class SQLFORM(FORM):
 
     def assert_status(self, status, request_vars):
         if not status and self.record and self.errors:
-            ### if there are errors in update mode
+            # if there are errors in update mode
             # and some errors refers to an already uploaded file
             # delete error if
             # - user not trying to upload a new file
@@ -1123,13 +1129,14 @@ class SQLFORM(FORM):
             extra_field.table = table
             extra_field.tablename = table._tablename
             if extra_field.requires == DEFAULT:
-                extra_field.requires = sqlhtml_validators(extra_field)
+                extra_field.requires = _default_validators(table._db,
+                                                           extra_field)
 
         for fieldname in self.fields:
             if fieldname.find('.') >= 0:
                 continue
 
-            field = (self.table[fieldname] if fieldname in self.table.fields 
+            field = (self.table[fieldname] if fieldname in self.table.fields
                      else self.extra_fields[fieldname])
             comment = None
 
@@ -1139,7 +1146,7 @@ class SQLFORM(FORM):
                 comment = ''
             self.custom.comment[fieldname] = comment
 
-            if not labels is None and fieldname in labels:
+            if labels is not None and fieldname in labels:
                 label = labels[fieldname]
             else:
                 label = field.label
@@ -1181,17 +1188,13 @@ class SQLFORM(FORM):
             cond = readonly or \
                 (not ignore_rw and not field.writable and field.readable)
 
-            if default is not None and not cond:                
+            if default is not None and not cond:
                 default = field.formatter(default)
 
             dspval = default
             inpval = default
 
             if cond:
-
-                # ## if field.re                field.requires = sqlhtml_validators(field)                field.requires = sqlhtml_validators(field)present is available else
-                # ## ignore blob and preview uploaded images
-                # ## format everything else
 
                 if field.represent:
                     inp = represent(field, default, record)
@@ -1204,6 +1207,13 @@ class SQLFORM(FORM):
                         field, default, _disabled=True)
                 else:
                     inp = field.formatter(default)
+                if getattr(field, 'show_if', None):
+                    if not isinstance(inp, XmlComponent):
+                        # Create a container for string represents
+                        inp = DIV(inp, _id='%s_%s' % (field.tablename, field.name))
+                    trigger, cond = show_if(field.show_if)
+                    inp['_data-show-trigger'] = trigger
+                    inp['_data-show-if'] = cond
             elif field.type == 'upload':
                 if field.widget:
                     inp = field.widget(field, default, upload)
@@ -1243,7 +1253,7 @@ class SQLFORM(FORM):
 
             xfields.append((row_id, label, inp, comment))
             self.custom.dspval[fieldname] = dspval if (dspval is not None) else nbsp
-            self.custom.inpval[fieldname] = inpval if not inpval is None else ''
+            self.custom.inpval[fieldname] = inpval if inpval is not None else ''
             self.custom.widget[fieldname] = inp
 
         # if a record is provided and found, as is linkto
@@ -1258,7 +1268,7 @@ class SQLFORM(FORM):
                     query = urllib.quote(
                         '%s.%s==%s' % (db, rfld, record[self.id_field_name]))
                 lname = olname = '%s.%s' % (rfld.tablename, rfld.name)
-                if ofields and not olname in ofields:
+                if ofields and olname not in ofields:
                     continue
                 if labels and lname in labels:
                     lname = labels[lname]
@@ -1269,12 +1279,12 @@ class SQLFORM(FORM):
                     (olname.replace('.', '__') + SQLFORM.ID_ROW_SUFFIX,
                      '', widget, col3.get(olname, '')))
                 self.custom.linkto[olname.replace('.', '__')] = widget
-#                 </block>
+        # </block>
 
         # when deletable, add delete? checkbox
         self.custom.delete = self.custom.deletable = ''
         if record and deletable:
-            #add secondary css class for cascade delete warning
+            # add secondary css class for cascade delete warning
             css = 'delete'
             for f in self.table.fields:
                 on_del = self.table[f].ondelete
@@ -1288,15 +1298,14 @@ class SQLFORM(FORM):
                            )
             xfields.append(
                 (self.FIELDKEY_DELETE_RECORD + SQLFORM.ID_ROW_SUFFIX,
-                 LABEL(
-                        T(delete_label), separator,
+                    LABEL(
+                        T(delete_label), sep,
                         _for=self.FIELDKEY_DELETE_RECORD,
-                        _id=self.FIELDKEY_DELETE_RECORD + \
-                            SQLFORM.ID_LABEL_SUFFIX),
+                        _id=self.FIELDKEY_DELETE_RECORD +
+                        SQLFORM.ID_LABEL_SUFFIX),
                  widget,
                  col3.get(self.FIELDKEY_DELETE_RECORD, '')))
             self.custom.delete = self.custom.deletable = widget
-
 
         # when writable, add submit button
         self.custom.submit = ''
@@ -1323,7 +1332,6 @@ class SQLFORM(FORM):
         self.custom.end = XML("%s</%s>" % (end, self.tag))
         table = self.createform(xfields)
         self.components = [table]
-
 
     def createform(self, xfields):
         formstyle = self.formstyle
@@ -1477,10 +1485,10 @@ class SQLFORM(FORM):
             # that does not pass validation, yet it should be deleted
             for fieldname in self.fields:
 
-                field = (self.table[fieldname] 
+                field = (self.table[fieldname]
                          if fieldname in self.table.fields
                          else self.extra_fields[fieldname])
-                ### this is a workaround! widgets should always have default not None!
+                # this is a workaround! widgets should always have default not None!
                 if not field.widget and field.type.startswith('list:') and \
                         not OptionsWidget.has_options(field):
                     field.widget = self.widgets.list.widget
@@ -1526,12 +1534,12 @@ class SQLFORM(FORM):
             return True
 
         for fieldname in self.fields:
-            if not fieldname in self.table.fields:
+            if fieldname not in self.table.fields:
                 continue
 
             if not self.ignore_rw and not self.table[fieldname].writable:
-                ### this happens because FORM has no knowledge of writable
-                ### and thinks that a missing boolean field is a None
+                # this happens because FORM has no knowledge of writable
+                # and thinks that a missing boolean field is a None
                 if self.table[fieldname].type == 'boolean' and \
                         self.vars.get(fieldname, True) is None:
                     del self.vars[fieldname]
@@ -1576,12 +1584,12 @@ class SQLFORM(FORM):
                 elif hasattr(f, 'file'):
                     (source_file, original_filename) = (f.file, f.filename)
                 elif isinstance(f, (str, unicode)):
-                    ### do not know why this happens, it should not
+                    # do not know why this happens, it should not
                     (source_file, original_filename) = \
                         (cStringIO.StringIO(f), 'file.txt')
                 else:
                     # this should never happen, why does it happen?
-                    #print 'f=',repr(f)
+                    # print 'f=',repr(f)
                     continue
                 newfilename = field.store(source_file, original_filename,
                                           field.uploadfolder)
@@ -1608,7 +1616,7 @@ class SQLFORM(FORM):
                     fields[fieldname] = [safe_int(
                         x) for x in (value and [value] or [])]
             elif field.type == 'integer':
-                if not value is None:
+                if value is not None:
                     fields[fieldname] = safe_int(value)
             elif field.type.startswith('reference'):
                 ## Avoid "constraint violation" exception when you have a
@@ -1626,12 +1634,12 @@ class SQLFORM(FORM):
                     else:
                         fields[fieldname] = safe_int(value)
             elif field.type == 'double':
-                if not value is None:
+                if value is not None:
                     fields[fieldname] = safe_float(value)
 
         for fieldname in self.vars:
             if fieldname != 'id' and fieldname in self.table.fields\
-                and not fieldname in fields and not fieldname\
+                and fieldname not in fields and not fieldname\
                     in request_vars:
                 fields[fieldname] = self.vars[fieldname]
 
@@ -1643,7 +1651,7 @@ class SQLFORM(FORM):
                 # this should never happen but seems to happen to some
                 del fields['delete_this_record']
             for field in self.table:
-                if not field.name in fields and field.writable is False \
+                if field.name not in fields and field.writable is False \
                         and field.update is None and field.compute is None:
                     if record_id and self.record:
                         fields[field.name] = self.record[field.name]
@@ -1716,6 +1724,8 @@ class SQLFORM(FORM):
         Internally will build a non-database based data model
         to hold the fields.
         """
+        # this is here to avoid circular references
+        from gluon.dal import DAL
         # Define a table name, this way it can be logical to our CSS.
         # And if you switch from using SQLFORM to SQLFORM.factory
         # your same css definitions will still apply.
@@ -1736,7 +1746,7 @@ class SQLFORM(FORM):
             keywords = keywords[0]
             request.vars.keywords = keywords
         key = keywords.strip()
-        if key and not ' ' in key and not '"' in key and not "'" in key:
+        if key and ' ' not in key and not '"' in key and not "'" in key:
             SEARCHABLE_TYPES = ('string', 'text', 'list:string')
             parts = [field.contains(
                 key) for field in fields if field.type in SEARCHABLE_TYPES]
@@ -1766,11 +1776,11 @@ class SQLFORM(FORM):
                     prefix='w2p'
                     ):
         T = current.T
-        panel_id='%s_query_panel' % prefix
-        fields_id='%s_query_fields' % prefix
-        keywords_id='%s_keywords' % prefix
-        field_id='%s_field' % prefix
-        value_id='%s_value' % prefix
+        panel_id = '%s_query_panel' % prefix
+        fields_id = '%s_query_fields' % prefix
+        keywords_id = '%s_keywords' % prefix
+        field_id = '%s_field' % prefix
+        value_id = '%s_value' % prefix
         search_options = search_options or {
             'string': ['=', '!=', '<', '>', '<=', '>=', 'starts with', 'contains', 'in', 'not in'],
             'text': ['=', '!=', '<', '>', '<=', '>=', 'starts with', 'contains', 'in', 'not in'],
@@ -1795,49 +1805,53 @@ class SQLFORM(FORM):
             # treat ftype 'decimal' as 'double'
             # (this fixes problems but needs refactoring!
             if isinstance(field.type, SQLCustomType):
-                            ftype = field.type.type.split(' ')[0]
+                ftype = field.type.type.split(' ')[0]
             else:
                 ftype = field.type.split(' ')[0]
-            if ftype.startswith('decimal'): ftype = 'double'
-            elif ftype == 'bigint': ftype = 'integer'
-            elif ftype.startswith('big-'): ftype = ftype[4:]
+            if ftype.startswith('decimal'):
+                ftype = 'double'
+            elif ftype == 'bigint':
+                ftype = 'integer'
+            elif ftype.startswith('big-'):
+                ftype = ftype[4:]
             # end
             options = search_options.get(ftype, None)
             if options:
                 label = isinstance(
                     field.label, str) and T(field.label) or field.label
                 selectfields.append(OPTION(label, _value=str(field)))
+                # At web2py level SQLCustomType field values are treated as normal web2py types
+                if isinstance(field.type, SQLCustomType):
+                    field_type = field.type.type
+                else:
+                    field_type = field.type
+
                 operators = SELECT(*[OPTION(T(option), _value=option) for option in options],_class='form-control')
                 _id = "%s_%s" % (value_id, name)
-                if field.type == 'boolean':
-                    value_input = SQLFORM.widgets.boolean.widget(field, field.default, _id=_id,_class='form-control')
-                elif field.type == 'double':
-                    value_input = SQLFORM.widgets.double.widget(field, field.default, _id=_id,_class='form-control')
-                elif field.type == 'time':
-                    value_input = SQLFORM.widgets.time.widget(field, field.default, _id=_id,_class='form-control')
-                elif field.type == 'date':
+                if field_type in ['boolean', 'double', 'time', 'integer']:
+                    value_input = SQLFORM.widgets[field_type].widget(field, field.default, _id=_id,_class='form-control')
+                elif field_type == 'date':
                     iso_format = {'_data-w2p_date_format' : '%Y-%m-%d'}
                     value_input = SQLFORM.widgets.date.widget(field, field.default, _id=_id,_class='form-control', **iso_format)
-                elif field.type == 'datetime':
+                elif field_type == 'datetime':
                     iso_format = {'_data-w2p_datetime_format' : '%Y-%m-%d %H:%M:%S'}
                     value_input = SQLFORM.widgets.datetime.widget(field, field.default, _id=_id,_class='form-control', **iso_format)
-                elif (field.type.startswith('reference ') or
-                      field.type.startswith('list:reference ')) and \
+                elif (field_type.startswith('reference ') or
+                      field_type.startswith('list:reference ')) and \
                       hasattr(field.requires, 'options'):
                     value_input = SELECT(
                         *[OPTION(v, _value=k)
                           for k, v in field.requires.options()],
                          _class='form-control',
                          **dict(_id=_id))
-                elif field.type == 'integer' or \
-                        field.type.startswith('reference ') or \
-                        field.type.startswith('list:integer') or \
-                        field.type.startswith('list:reference '):
+                elif field_type.startswith('reference ') or \
+                     field_type.startswith('list:integer') or \
+                     field_type.startswith('list:reference '):
                     value_input = SQLFORM.widgets.integer.widget(field, field.default, _id=_id,_class='form-control')
                 else:
                     value_input = INPUT(
-                        _type='text', _id=_id, 
-                        _class=(field.type or '')+' form-control')
+                        _type='text', _id=_id,
+                        _class="%s %s" % ((field_type or ''), 'form-control'))
 
                 new_button = INPUT(
                     _type="button", _value=T('New Search'), _class="btn btn-default", _title=T('Start building a new search'),
@@ -1862,7 +1876,7 @@ class SQLFORM(FORM):
         criteria.insert(0, SELECT(
                 _id=fields_id,
                 _onchange="jQuery('.w2p_query_row').hide();jQuery('#%s_'+jQuery('#%s').val().replace('.','-')).show();" % (field_id, fields_id),
-                _style='float:left',_class='form-control',
+                _style='float:left', _class='form-control',
                 *selectfields))
 
         fadd = SCRIPT("""
@@ -1872,7 +1886,15 @@ class SQLFORM(FORM):
         function %(prefix)s_build_query(aggregator,a) {
           var b=a.replace('.','-');
           var option = jQuery('#%(field_id)s_'+b+' select').val();
-          var value = jQuery('#%(value_id)s_'+b).val().replace('"','\\\\"');
+          var value;
+          var $value_item = jQuery('#%(value_id)s_'+b);
+          if ($value_item.is(':checkbox')){
+            if  ($value_item.is(':checked'))
+                    value = 'True';
+            else  value = 'False';
+          }
+          else
+          { value = $value_item.val().replace('"','\\\\"')}
           var s=a+' '+option+' "'+value+'"';
           var k=jQuery('#%(keywords_id)s');
           var v=k.val();
@@ -1972,9 +1994,9 @@ class SQLFORM(FORM):
                       buttonback='icon leftarrow icon-arrow-left glyphicon glyphicon-arrow-left',
                       buttonexport='icon downarrow icon-download glyphicon glyphicon-download',
                       buttondelete='icon trash icon-trash glyphicon glyphicon-trash',
-                      buttonedit='icon pen icon-pencil glyphicon glyphicon-arrow-pencil',
+                      buttonedit='icon pen icon-pencil glyphicon glyphicon-pencil',
                       buttontable='icon rightarrow icon-arrow-right glyphicon glyphicon-arrow-right',
-                      buttonview='icon magnifier icon-zoom-in glyphicon glyphicon-arrow-zoom-in',
+                      buttonview='icon magnifier icon-zoom-in glyphicon glyphicon-zoom-in',
                       )
         elif not isinstance(ui, dict):
             raise RuntimeError('SQLFORM.grid ui argument must be a dictionary')
@@ -1992,6 +2014,16 @@ class SQLFORM(FORM):
         details = details and not groupby
         rows = None
 
+        # see issue 1980. Basically we can have keywords in get_vars
+        # (i.e. when the search term is propagated through page=2&keywords=abc)
+        # but if there is keywords in post_vars (i.e. POSTing a search request)
+        # the one in get_vars should be replaced by the new one
+        keywords = ''
+        if 'keywords' in request.post_vars:
+            keywords = request.post_vars.keywords
+        elif 'keywords' in request.get_vars:
+            keywords = request.get_vars.keywords
+
         def fetch_count(dbset):
             ##FIXME for google:datastore cache_count is ignored
             ## if it's not an integer
@@ -2006,7 +2038,7 @@ class SQLFORM(FORM):
                 elif left:
                     c = 'count(*)'
                     nrows = dbset.select(c, left=left, cacheable=True, cache=cache_count).first()[c]
-                elif dbset._db._adapter.dbengine=='google:datastore':
+                elif dbset._db._adapter.dbengine == 'google:datastore':
                     #if we don't set a limit, this can timeout for a large table
                     nrows = dbset.db._adapter.count(dbset.query, limit=1000)
                 else:
@@ -2048,7 +2080,7 @@ class SQLFORM(FORM):
                 '/'.join(str(a) for a in args) == '/'.join(request.args) or
                 URL.verify(request, user_signature=user_signature,
                            hash_vars=False) or
-                (request.args(len(args))=='view' and not logged)):
+                    (request.args(len(args)) == 'view' and not logged)):
                 session.flash = T('not authorized')
                 redirect(referrer)
 
@@ -2084,7 +2116,7 @@ class SQLFORM(FORM):
                 tablenames += db._adapter.tables(join)
         tables = [db[tablename] for tablename in tablenames]
         if fields:
-            #add missing tablename to virtual fields
+            # add missing tablename to virtual fields
             for table in tables:
                 for k, f in table.iteritems():
                     if isinstance(f, Field.Virtual):
@@ -2093,8 +2125,8 @@ class SQLFORM(FORM):
         else:
             fields = []
             columns = []
-            filter1 = lambda f:isinstance(f, Field)
-            filter2 = lambda f:isinstance(f, Field) and f.readable
+            filter1 = lambda f: isinstance(f, Field)
+            filter2 = lambda f: isinstance(f, Field) and f.readable
             for table in tables:
                 fields += filter(filter1, table)
                 columns += filter(filter2, table)
@@ -2108,15 +2140,18 @@ class SQLFORM(FORM):
             if groupby is None:
                 field_id = tables[0]._id
             elif groupby and isinstance(groupby, Field):
-                field_id = groupby #take the field passed as groupby
+                # take the field passed as groupby
+                field_id = groupby
             elif groupby and isinstance(groupby, Expression):
-                field_id = groupby.first #take the first groupby field
-                while not(isinstance(field_id, Field)): # Navigate to the first Field of the expression
+                # take the first groupby field
+                field_id = groupby.first
+                while not(isinstance(field_id, Field)):
+                    # Navigate to the first Field of the expression
                     field_id = field_id.first
         table = field_id.table
         tablename = table._tablename
         if not any(str(f) == str(field_id) for f in fields):
-            fields = [f for f in fields]+[field_id]
+            fields = [f for f in fields] + [field_id]
         if upload == '<default>':
             upload = lambda filename: url(args=['download', filename])
             if request.args(-2) == 'download':
@@ -2258,7 +2293,7 @@ class SQLFORM(FORM):
             tsv_with_hidden_cols=
                 (ExporterTSV, 'TSV (Spreadsheets, hidden cols)', T('Spreadsheet-optimised export of tab-separated content including hidden columns. May be slow')),
             tsv=(ExporterTSV, 'TSV (Spreadsheets)', T('Spreadsheet-optimised export of tab-separated content, visible columns only. May be slow.')))
-        if not exportclasses is None:
+        if exportclasses is not None:
             """
             remember: allow to set exportclasses=dict(csv=False, csv_with_hidden_cols=False) to disable the csv format
             """
@@ -2280,8 +2315,10 @@ class SQLFORM(FORM):
             expcolumns = [str(f) for f in columns]
             selectable_columns = [str(f) for f in columns if not isinstance(f, Field.Virtual)]
             if export_type.endswith('with_hidden_cols'):
-                #expcolumns = [] start with the visible columns, which includes visible virtual fields
-                selectable_columns = []  #like expcolumns but excluding virtual
+                # expcolumns = [] start with the visible columns, which
+                # includes visible virtual fields
+                selectable_columns = []
+                # like expcolumns but excluding virtual
                 for table in tables:
                     for field in table:
                         if field.readable and field.tablename in tablenames:
@@ -2289,19 +2326,25 @@ class SQLFORM(FORM):
                                 expcolumns.append(str(field))
                             if not(isinstance(field, Field.Virtual)):
                                 selectable_columns.append(str(field))
-                    #look for virtual fields not displayed (and virtual method fields to be added here?)
+                    # look for virtual fields not displayed (and virtual method
+                    # fields to be added here?)
                     for (field_name, field) in table.iteritems():
                         if isinstance(field, Field.Virtual) and not str(field) in expcolumns:
-                             expcolumns.append(str(field))
+                            expcolumns.append(str(field))
 
             if export_type in exportManager and exportManager[export_type]:
-                if request.vars.keywords:
+                if keywords:
                     try:
-                        #the query should be constructed using searchable fields but not virtual fields
+                        # the query should be constructed using searchable
+                        # fields but not virtual fields
                         sfields = reduce(lambda a, b: a + b,
                             [[f for f in t if f.readable and not isinstance(f, Field.Virtual)] for t in tables])
-                        dbset = dbset(SQLFORM.build_query(
-                            sfields, request.vars.get('keywords', '')))
+                        # use custom_query using searchable
+                        if callable(searchable):
+                            dbset = dbset(searchable(sfields, keywords))
+                        else:
+                            dbset = dbset(SQLFORM.build_query(
+                                sfields, keywords))
                         rows = dbset.select(left=left, orderby=orderby,
                                             cacheable=True, *selectable_columns)
                     except Exception, e:
@@ -2313,9 +2356,12 @@ class SQLFORM(FORM):
 
                 value = exportManager[export_type]
                 clazz = value[0] if hasattr(value, '__getitem__') else value
-                rows.colnames = expcolumns  # expcolumns is all cols to be exported including virtual fields
+                # expcolumns is all cols to be exported including virtual fields
+                rows.colnames = expcolumns
                 oExp = clazz(rows)
-                filename = '.'.join(('rows', oExp.file_ext))
+                export_filename = \
+                    request.vars.get('_export_filename') or 'rows'
+                filename = '.'.join((export_filename, oExp.file_ext))
                 response.headers['Content-Type'] = oExp.content_type
                 response.headers['Content-Disposition'] = \
                     'attachment;filename=' + filename + ';'
@@ -2327,8 +2373,7 @@ class SQLFORM(FORM):
         elif not request.vars.records:
             request.vars.records = []
 
-        session['_web2py_grid_referrer_' + formname] = \
-            url2(vars=request.get_vars)
+        session['_web2py_grid_referrer_' + formname] = url2(vars=request.get_vars)
         console = DIV(_class='web2py_console %(header)s %(cornertop)s' % ui)
         error = None
         if create:
@@ -2353,19 +2398,22 @@ class SQLFORM(FORM):
                 spanel_id = '%s_query_fields' % prefix
                 sfields_id = '%s_query_panel' % prefix
                 skeywords_id = '%s_keywords' % prefix
+                # hidden fields to presever keywords in url after the submit
+                hidden_fields = [INPUT(_type='hidden', _value=v, _name=k) for k, v in request.get_vars.items() if k not in ['keywords', 'page']]
                 search_widget = lambda sfield, url: CAT(FORM(
-                    INPUT(_name='keywords', _value=request.vars.keywords,
-                          _id=skeywords_id,_class='form-control',
+                    INPUT(_name='keywords', _value=keywords,
+                          _id=skeywords_id, _class='form-control',
                           _onfocus="jQuery('#%s').change();jQuery('#%s').slideDown();" % (spanel_id, sfields_id) if advanced_search else ''
                           ),
                     INPUT(_type='submit', _value=T('Search'), _class="btn btn-default"),
                     INPUT(_type='submit', _value=T('Clear'), _class="btn btn-default",
                           _onclick="jQuery('#%s').val('');" % skeywords_id),
+                    *hidden_fields,
                     _method="GET", _action=url), search_menu)
+            # TODO vars from the url should be removed, they are not used by the submit
             form = search_widget and search_widget(sfields, url()) or ''
             console.append(add)
             console.append(form)
-            keywords = request.vars.get('keywords', '')
             try:
                 if callable(searchable):
                     subquery = searchable(sfields, keywords)
@@ -2402,7 +2450,7 @@ class SQLFORM(FORM):
 
         ordermatch, marker = orderby, ''
         if orderby:
-            #if orderby is a single column, remember to put the marker
+            # if orderby is a single column, remember to put the marker
             if isinstance(orderby, Expression):
                 if orderby.first and not orderby.second:
                     ordermatch, marker = orderby.first, '~'
@@ -2425,7 +2473,7 @@ class SQLFORM(FORM):
                     elif key == ordermatch[1:]:
                         marker = sorter_icons[1]
                 header = A(header, marker, _href=url(vars=dict(
-                    keywords=request.vars.keywords or '',
+                    keywords=keywords,
                     order=key)), cid=request.cid)
             headcols.append(TH(header, _class=ui.get('default')))
 
@@ -2459,21 +2507,26 @@ class SQLFORM(FORM):
         head = TR(*headcols, **dict(_class=ui.get('header')))
 
         cursor = True
-        #figure out what page we are one to setup the limitby
+        # figure out what page we are one to setup the limitby
         if paginate and dbset._db._adapter.dbengine == 'google:datastore':
             cursor = request.vars.cursor or True
             limitby = (0, paginate)
-            try: page = int(request.vars.page or 1)-1
-            except ValueError: page = 0
-        elif paginate and paginate<nrows:
-            try: page = int(request.vars.page or 1)-1
-            except ValueError: page = 0
-            limitby = (paginate*page, paginate*(page+1))
+            try:
+                page = int(request.vars.page or 1) - 1
+            except ValueError:
+                page = 0
+        elif paginate and paginate < nrows:
+            try:
+                page = int(request.vars.page or 1) - 1
+            except ValueError:
+                page = 0
+            limitby = (paginate * page, paginate * (page + 1))
         else:
             limitby = None
         try:
             table_fields = [field for field in fields
-                            if (field.tablename in tablenames and not(isinstance(field, Field.Virtual)))]
+                            if (field.tablename in tablenames and
+                                not(isinstance(field, Field.Virtual)))]
             if dbset._db._adapter.dbengine == 'google:datastore':
                 rows = dbset.select(left=left, orderby=orderby,
                                     groupby=groupby, limitby=limitby,
@@ -2503,16 +2556,23 @@ class SQLFORM(FORM):
 
         paginator = UL()
         if paginate and dbset._db._adapter.dbengine == 'google:datastore':
-            #this means we may have a large table with an unknown number of rows.
+            # this means we may have a large table with an unknown number of rows.
             try:
-                page = int(request.vars.page or 1)-1
+                page = int(request.vars.page or 1) - 1
             except ValueError:
                 page = 0
-            paginator.append(LI('page %s' % (page+1)))
+            paginator.append(LI('page %s' % (page + 1)))
             if next_cursor:
-                d = dict(page=page+2, cursor=next_cursor)
-                if order: d['order'] = order
-                if request.vars.keywords: d['keywords'] = request.vars.keywords
+                d = dict(page=page + 2, cursor=next_cursor)
+                if order:
+                    d['order'] = order
+                # see issue 1980, also at the top of the definition
+                # if keyworkds is in request.vars, we don't need to
+                # copy over the keywords parameter in the links for pagination
+                if 'keywords' in request.vars and not keywords:
+                    d['keywords'] = ''
+                elif keywords:
+                    d['keywords'] = keywords
                 paginator.append(LI(
                     A('next', _href=url(vars=d), cid=request.cid)))
         elif paginate and paginate < nrows:
@@ -2528,8 +2588,13 @@ class SQLFORM(FORM):
                 d = dict(page=p + 1)
                 if order:
                     d['order'] = order
-                if request.vars.keywords:
-                    d['keywords'] = request.vars.keywords
+                # see issue 1980, also at the top of the definition
+                # if keyworkds is in request.vars, we don't need to
+                # copy over the keywords parameter in the links for pagination
+                if 'keywords' in request.vars and not keywords:
+                    d['keywords'] = ''
+                elif keywords:
+                    d['keywords'] = keywords
                 return A(name, _href=url(vars=d), cid=request.cid)
             NPAGES = 5  # window is 2*NPAGES
             if page > NPAGES + 1:
@@ -2599,7 +2664,7 @@ class SQLFORM(FORM):
                             value = ''
                     if isinstance(value, str):
                         value = truncate_string(value, maxlength)
-                    elif not isinstance(value, DIV):
+                    elif not isinstance(value, XmlComponent):
                         value = field.formatter(value)
                     trcols.append(TD(value))
                 row_buttons = TD(_class='row_buttons', _nowrap=True)
@@ -2657,7 +2722,8 @@ class SQLFORM(FORM):
                 _style='width:100%;overflow-x:auto;-ms-overflow-x:scroll')
             if selectable:
                 if not callable(selectable):
-                    #now expect that selectable and related parameters are iterator (list, tuple, etc)
+                    # now expect that selectable and related parameters are
+                    # iterator (list, tuple, etc)
                     inputs = []
                     for i, submit_info in enumerate(selectable):
                         submit_text = submit_info[0]
@@ -2671,14 +2737,14 @@ class SQLFORM(FORM):
 
                 if formstyle == 'bootstrap':
                     # add space between buttons
-                    #inputs = sum([[inp, ' '] for inp in inputs], [])[:-1]
+                    # inputs = sum([[inp, ' '] for inp in inputs], [])[:-1]
                     htmltable = FORM(htmltable, DIV(_class='form-actions', *inputs))
                 else:
                     htmltable = FORM(htmltable, *inputs)
 
                 if htmltable.process(formname=formname).accepted:
                     htmltable.vars.records = htmltable.vars.records or []
-                    htmltable.vars.records = htmltable.vars.records if type(htmltable.vars.records) == list else [htmltable.vars.records]
+                    htmltable.vars.records = htmltable.vars.records if isinstance(htmltable.vars.records, list) else [htmltable.vars.records]
                     records = [int(r) for r in htmltable.vars.records]
                     if not callable(selectable):
                         for i, submit_info in enumerate(selectable):
@@ -2699,13 +2765,13 @@ class SQLFORM(FORM):
                     continue
                 if hasattr(v, "__getitem__"):
                     label = v[1]
-                    title = v[2] if len(v)>2 else label
+                    title = v[2] if len(v) > 2 else label
                 else:
                     label = title = k
                 link = url2(vars=dict(
                     order=request.vars.order or '',
                     _export_type=k,
-                    keywords=request.vars.keywords or ''))
+                    keywords=keywords or ''))
                 export_links.append(A(T(label), _href=link, _title=title, _class='btn btn-default'))
             export_menu = \
                 DIV(T('Export:'), _class="w2p_export_menu", *export_links)
@@ -2794,7 +2860,7 @@ class SQLFORM(FORM):
             elif callable(table._format):
                 return table._format(row)
             else:
-                return '#'+str(row.id)
+                return '#' + str(row.id)
         try:
             nargs = len(args) + 1
             previous_tablename, previous_fieldname, previous_id = \
@@ -2870,10 +2936,9 @@ class SQLFORM(FORM):
         if isinstance(linked_tables, dict):
             linked_tables = linked_tables.get(table._tablename, [])
 
-        opts = [OPTION(T('References')+':', _value='')]
         linked = []
         if linked_tables:
-            for item in linked_tables:                
+            for item in linked_tables:
                 tb = None
                 if isinstance(item, Table) and item._tablename in check:
                     tablename = item._tablename
@@ -2943,7 +3008,7 @@ class SQLTABLE(TABLE):
         upload: URL to download uploaded files
         orderby: Add an orderby link to column headers.
         headers: dictionary of headers to headers redefinions
-            headers can also be a string to gerenare the headers from data
+            headers can also be a string to generate the headers from data
             for now only headers="fieldname:capitalize",
             headers="labels" and headers=None are supported
         truncate: length at which to truncate text in table cells.
@@ -2998,12 +3063,16 @@ class SQLTABLE(TABLE):
             return
         REGEX_TABLE_DOT_FIELD = sqlrows.db._adapter.REGEX_TABLE_DOT_FIELD
         if not columns:
-            columns = [c for c in sqlrows.colnames if REGEX_TABLE_DOT_FIELD.match(c)]
+            columns = list(sqlrows.colnames)
         if headers == 'fieldname:capitalize':
             headers = {}
             for c in columns:
-                (t, f) = REGEX_TABLE_DOT_FIELD.match(c).groups()
-                headers[t + '.' + f] = f.replace('_', ' ').title()
+                tfmatch = REGEX_TABLE_DOT_FIELD.match(c)
+                if tfmatch:
+                    (t, f) = REGEX_TABLE_DOT_FIELD.match(c).groups()
+                    headers[t + '.' + f] = f.replace('_', ' ').title()
+                else:
+                    headers[c] = REGEX_ALIAS_MATCH.sub(r'\2', c)
         elif headers == 'labels':
             headers = {}
             for c in columns:
@@ -3022,7 +3091,7 @@ class SQLTABLE(TABLE):
             headers = {}
         else:
             for c in columns:  # new implement dict
-                c = '.'.join(REGEX_TABLE_DOT_FIELD.match(c).groups())
+                c = str(c)
                 if isinstance(headers.get(c, c), dict):
                     coldict = headers.get(c, c)
                     attrcol = dict()
@@ -3035,7 +3104,7 @@ class SQLTABLE(TABLE):
                     row.append(TH(A(headers.get(c, c),
                                     _href=th_link + '?orderby=' + c, cid=cid)))
                 else:
-                    row.append(TH(headers.get(c, c)))
+                    row.append(TH(headers.get(c, REGEX_ALIAS_MATCH.sub(r'\2', c))))
 
             if extracolumns:  # new implement dict
                 for c in extracolumns:
@@ -3056,7 +3125,7 @@ class SQLTABLE(TABLE):
             else:
                 _class = 'w2p_odd odd'
 
-            if not selectid is None:  # new implement
+            if selectid is not None:  # new implement
                 if record.get('id') == selectid:
                     _class += ' rowselected'
 
@@ -3133,13 +3202,13 @@ class SQLTABLE(TABLE):
                         r = ''
                 elif field.type in ['string', 'text']:
                     r = str(field.formatter(r))
+                    truncate_by = truncate
                     if headers != {}:  # new implement dict
                         if isinstance(headers[colname], dict):
                             if isinstance(headers[colname]['truncate'], int):
-                                r = truncate_string(
-                                    r, headers[colname]['truncate'])
-                    elif not truncate is None:
-                        r = truncate_string(r, truncate)
+                                truncate_by = headers[colname]['truncate']
+                    if truncate_by is not None:
+                        r = truncate_string(r, truncate_by)
                 attrcol = dict()  # new implement dict
                 if headers != {}:
                     if isinstance(headers[colname], dict):
@@ -3236,7 +3305,7 @@ class ExportClass(object):
                         value = record[t][f]
                     else:
                         value = record[f]
-                    if field.type == 'blob' and not value is None:
+                    if field.type == 'blob' and value is not None:
                         value = ''
                     elif field.represent:
                         value = field.represent(value, record)
@@ -3287,7 +3356,7 @@ class ExporterTSV(ExportClass):
 
 
 class ExporterCSV(ExportClass):
-    #CSV, represent == True
+    # CSV, represent == True
     label = 'CSV'
     file_ext = "csv"
     content_type = "text/csv"
@@ -3295,7 +3364,7 @@ class ExporterCSV(ExportClass):
     def __init__(self, rows):
         ExportClass.__init__(self, rows)
 
-    def export(self):  #export CSV with rows.represent
+    def export(self):  # export CSV with rows.represent
         if self.rows:
             s = cStringIO.StringIO()
             self.rows.export_to_csv_file(s, represent=True)
@@ -3305,7 +3374,7 @@ class ExporterCSV(ExportClass):
 
 
 class ExporterCSV_hidden(ExportClass):
-    #pure csv, no represent.
+    # pure csv, no represent.
     label = 'CSV'
     file_ext = "csv"
     content_type = "text/csv"

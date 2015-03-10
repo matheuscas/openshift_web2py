@@ -21,7 +21,10 @@ import sanitizer
 import itertools
 import decoder
 import copy_reg
-import cPickle
+try:
+    import cPickle as pickle
+except:
+    import pickle
 import marshal
 
 from HTMLParser import HTMLParser
@@ -30,6 +33,7 @@ from htmlentitydefs import name2codepoint
 from gluon.storage import Storage
 from gluon.utils import web2py_uuid, simple_hash, compare
 from gluon.highlight import highlight
+
 
 regex_crlf = re.compile('\r|\n')
 
@@ -43,6 +47,7 @@ entitydefs.setdefault('apos', u"'".encode('utf-8'))
 
 __all__ = [
     'A',
+    'ASSIGNJS',
     'B',
     'BEAUTIFY',
     'BODY',
@@ -845,7 +850,7 @@ class DIV(XmlComponent):
         """
         components = []
         for c in self.components:
-            if isinstance(c, allowed_parents):
+            if isinstance(c, (allowed_parents,CAT)):
                 pass
             elif wrap_lambda:
                 c = wrap_lambda(c)
@@ -1240,13 +1245,13 @@ class CAT(DIV):
 
 
 def TAG_unpickler(data):
-    return cPickle.loads(data)
+    return pickle.loads(data)
 
 
 def TAG_pickler(data):
     d = DIV()
     d.__dict__ = data.__dict__
-    marshal_dump = cPickle.dumps(d)
+    marshal_dump = pickle.dumps(d, pickle.HIGHEST_PROTOCOL)
     return (TAG_unpickler, (marshal_dump,))
 
 
@@ -1859,7 +1864,7 @@ class INPUT(DIV):
                     break
         if not name in self.errors:
             self.vars[name] = value
-            return True        
+            return True
         return False
 
     def _postprocessing(self):
@@ -2824,6 +2829,14 @@ class MARKMIN(XmlComponent):
 
     def __str__(self):
         return self.xml()
+
+def ASSIGNJS(**kargs):
+    from gluon.serializers import json
+    s = ""
+    for key, value in kargs.items():
+        s+='var %s = %s;\n' % (key, json(value))
+    return XML(s)
+
 
 if __name__ == '__main__':
     import doctest

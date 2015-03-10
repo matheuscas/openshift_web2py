@@ -28,12 +28,16 @@ from gluon.settings import global_settings
 from gluon import recfile
 import hashlib
 import portalocker
-import cPickle
+try:
+    import cPickle as pickle
+except:
+    import pickle
 from pickle import Pickler, MARK, DICT, EMPTY_DICT
 from types import DictionaryType
 import cStringIO
 import datetime
 import re
+import copy_reg
 import Cookie
 import os
 import sys
@@ -193,7 +197,7 @@ class Request(Storage):
     def parse_get_vars(self):
         """Takes the QUERY_STRING and unpacks it to get_vars
         """
-        query_string = self.env.get('QUERY_STRING', '')        
+        query_string = self.env.get('QUERY_STRING', '')
         dget = urlparse.parse_qs(query_string, keep_blank_values=1)  # Ref: https://docs.python.org/2/library/cgi.html#cgi.parse_qs
         get_vars = self._get_vars = Storage(dget)
         for (key, value) in get_vars.iteritems():
@@ -230,7 +234,8 @@ class Request(Storage):
             dpost = cgi.FieldStorage(fp=body, environ=env, keep_blank_values=1)
             try:
                 post_vars.update(dpost)
-            except: pass
+            except:
+                pass
             if query_string is not None:
                 env['QUERY_STRING'] = query_string
             # The same detection used by FieldStorage to detect multipart POSTs
@@ -250,7 +255,7 @@ class Request(Storage):
                 # its value else leave it alone
 
                 pvalue = listify([(_dpk if _dpk.filename else _dpk.value)
-                                  for _dpk in dpk] 
+                                  for _dpk in dpk]
                                  if isinstance(dpk, list) else
                                  (dpk if dpk.filename else dpk.value))
                 if len(pvalue):
@@ -328,8 +333,8 @@ class Request(Storage):
         and secures the session.
         """
         cmd_opts = global_settings.cmd_options
-        #checking if this is called within the scheduler or within the shell
-        #in addition to checking if it's not a cronjob
+        # checking if this is called within the scheduler or within the shell
+        # in addition to checking if it's not a cronjob
         if ((cmd_opts and (cmd_opts.shell or cmd_opts.scheduler))
                 or global_settings.cronjob or self.is_https):
             current.session.secure()
@@ -389,8 +394,8 @@ class Response(Storage):
         self._view_environment = None
         self._custom_commit = None
         self._custom_rollback = None
-        self.generic_patterns = ['*']                                          
-        self.delimiters = ('{{','}}')
+        self.generic_patterns = ['*']
+        self.delimiters = ('{{', '}}')
         self.formstyle = 'table3cols'
         self.form_label_separator = ': '
 
@@ -486,7 +491,11 @@ class Response(Storage):
         for item in files:
             if isinstance(item, str):
                 f = item.lower().split('?')[0]
-                if self.static_version:
+                #  if static_version we need also to check for
+                #  static_version_urls. In that case, the _.x.x.x
+                #  bit would have already been added by the URL()
+                #  function
+                if self.static_version and not self.static_version_urls:
                     item = item.replace(
                         '/static/', '/static/_%s/' % self.static_version, 1)
                 if f.endswith('.css'):
@@ -546,7 +555,7 @@ class Response(Storage):
             else:
                 attname = filename
             headers["Content-Disposition"] = \
-                "attachment;filename=%s" % attname
+                'attachment;filename="%s"' % attname
 
         if not request:
             request = current.request
@@ -593,6 +602,7 @@ class Response(Storage):
 
         Downloads from http://..../download/filename
         """
+        from pydal.exceptions import NotAuthorizedException, NotFoundException
 
         current.session.forget(current.response)
 
@@ -609,6 +619,10 @@ class Response(Storage):
             raise HTTP(404)
         try:
             (filename, stream) = field.retrieve(name, nameonly=True)
+        except NotAuthorizedException:
+            raise HTTP(403)
+        except NotFoundException:
+            raise HTTP(404)
         except IOError:
             raise HTTP(404)
         headers = self.headers
@@ -621,6 +635,8 @@ class Response(Storage):
         return self.stream(stream, chunk_size=chunk_size, request=request)
 
     def json(self, data, default=None):
+        if 'Content-Type' not in self.headers:
+            self.headers['Content-Type'] = 'application/json'
         return json(data, default=default or custom_json)
 
     def xmlrpc(self, request, methods):
@@ -687,10 +703,10 @@ class Response(Storage):
             DIV(BEAUTIFY(current.response), backtotop,
                 _class="w2p-toolbar-hidden", _id="response-%s" % u),
             DIV(BEAUTIFY(dbtables), backtotop,
-                _class="w2p-toolbar-hidden",_id="db-tables-%s" % u),                
+                _class="w2p-toolbar-hidden", _id="db-tables-%s" % u),
             DIV(BEAUTIFY(dbstats), backtotop,
                 _class="w2p-toolbar-hidden", _id="db-stats-%s" % u),
-            SCRIPT("jQuery('.w2p-toolbar-hidden').hide()"), 
+            SCRIPT("jQuery('.w2p-toolbar-hidden').hide()"),
             _id="totop-%s" % u
         )
 
@@ -762,6 +778,7 @@ class Session(Storage):
             compression_level(int): 0-9, sets zlib compression on the data
                 before the encryption
         """
+        from gluon.dal import Field
         request = request or current.request
         response = response or current.response
         masterapp = masterapp or request.application
@@ -829,7 +846,7 @@ class Session(Storage):
                         portalocker.lock(response.session_file,
                                          portalocker.LOCK_EX)
                         response.session_locked = True
-                        self.update(cPickle.load(response.session_file))
+                        self.update(pickle.load(response.session_file))
                         response.session_file.seek(0)
                         oc = response.session_filename.split('/')[-1].split('-')[0]
                         if check_client and response.session_client != oc:
@@ -864,7 +881,7 @@ class Session(Storage):
                 table_migrate = False
             tname = tablename + '_' + masterapp
             table = db.get(tname, None)
-            Field = db.Field
+            #Field = db.Field
             if table is None:
                 db.define_table(
                     tname,
@@ -894,7 +911,7 @@ class Session(Storage):
                     if row:
                         # rows[0].update_record(locked=True)
                         # Unpickle the data
-                        session_data = cPickle.loads(row.session_data)
+                        session_data = pickle.loads(row.session_data)
                         self.update(session_data)
                         response.session_new = False
                     else:
@@ -906,7 +923,7 @@ class Session(Storage):
                 else:
                     response.session_id = None
                     response.session_new = True
-            # if there is no session id yet, we'll need to create a 
+            # if there is no session id yet, we'll need to create a
             # new session
             else:
                 response.session_new = True
@@ -924,7 +941,7 @@ class Session(Storage):
                 response.cookies[response.session_id_name]['expires'] = \
                     cookie_expires.strftime(FMT)
 
-        session_pickled = cPickle.dumps(self)
+        session_pickled = pickle.dumps(self, pickle.HIGHEST_PROTOCOL)
         response.session_hash = hashlib.md5(session_pickled).hexdigest()
 
         if self.flash:
@@ -995,7 +1012,7 @@ class Session(Storage):
         elif self._secure and response.session_id_name in rcookies:
             rcookies[response.session_id_name]['secure'] = True
 
-    def clear_session_cookies(sefl):
+    def clear_session_cookies(self):
         request = current.request
         response = current.response
         session = response.session
@@ -1036,6 +1053,20 @@ class Session(Storage):
                 rcookies[response.session_id_name]['expires'] = expires
 
     def clear(self):
+        # see https://github.com/web2py/web2py/issues/735
+        response = current.response
+        if response.session_storage_type == 'file':
+            target = recfile.generate(response.session_filename)
+            try:
+                os.unlink(target)
+            except:
+                pass
+        elif response.session_storage_type == 'db':
+            table = response.session_db_table
+            if response.session_id:
+                (record_id, sep, unique_key) = response.session_id.partition(':')
+                if record_id.isdigit() and long(record_id) > 0:
+                    table._db(table.id == record_id).delete()
         Storage.clear(self)
 
     def is_new(self):
@@ -1083,7 +1114,7 @@ class Session(Storage):
         return True
 
     def _unchanged(self, response):
-        session_pickled = cPickle.dumps(self)
+        session_pickled = pickle.dumps(self, pickle.HIGHEST_PROTOCOL)
         response.session_pickled = session_pickled
         session_hash = hashlib.md5(session_pickled).hexdigest()
         return response.session_hash == session_hash
@@ -1110,7 +1141,7 @@ class Session(Storage):
         else:
             unique_key = response.session_db_unique_key
 
-        session_pickled = response.session_pickled or cPickle.dumps(self)
+        session_pickled = response.session_pickled or pickle.dumps(self, pickle.HIGHEST_PROTOCOL)
 
         dd = dict(locked=False,
                   client_ip=response.session_client,
@@ -1151,7 +1182,7 @@ class Session(Storage):
                 portalocker.lock(response.session_file, portalocker.LOCK_EX)
                 response.session_locked = True
             if response.session_file:
-                session_pickled = response.session_pickled or cPickle.dumps(self)
+                session_pickled = response.session_pickled or pickle.dumps(self, pickle.HIGHEST_PROTOCOL)
                 response.session_file.write(session_pickled)
                 response.session_file.truncate()
         finally:
@@ -1176,3 +1207,9 @@ class Session(Storage):
                 del response.session_file
             except:
                 pass
+
+
+def pickle_session(s):
+    return Session, (dict(s),)
+
+copy_reg.pickle(Session, pickle_session)
